@@ -1,67 +1,88 @@
 const express = require('express');
-const app = express();
-const bodyParser = require('body-parser');
-require("dotenv").config();
-const connectDB = require("./utils/db");
+const sqlite3 = require('sqlite3').verbose();
 var cors = require('cors')
 
+const app = express();
 app.use(cors());
+
+const PORT = 3000;
 
 app.use(express.json());
 
-let users = [
-    { id: 1, name: "John Doe", email: "john@example.com", password: "password1", dob: "1990-01-01" },
-    { id: 2, name: "Jane Smith", email: "jane@example.com", password: "password2", dob: "1995-05-15" }
-];
+const db = new sqlite3.Database('./users.db');
 
-// Get all users
-app.get('/users', (req, res) => {
-    res.json(users);
-});
+db.run(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    email TEXT UNIQUE,
+    password TEXT,
+    dob TEXT
+)`);
 
-// Get user by ID
-app.get('/users/:id', (req, res) => {
-    const userId = parseInt(req.params.id);
-    const user = users.find(user => user.id === userId);
-
-    if (!user) {
-        return res.status(404).json({ message: "User not found" });
-    }
-    res.json(user);
-});
-
-// Create a new user
 app.post('/users', (req, res) => {
-    const newUser = req.body;
-    users.push(newUser);
-    res.status(201).json(newUser);
-});
-
-// Update user by ID
-app.put('/users/:id', (req, res) => {
-    const userId = parseInt(req.params.id);
-    const updatedUser = req.body;
-    let userIndex = users.findIndex(user => user.id === userId);
-
-    if (userIndex === -1) {
-        return res.status(404).json({ message: "User not found" });
-    }
-
-    users[userIndex] = { ...users[userIndex], ...updatedUser };
-    res.json(users[userIndex]);
-});
-
-// Delete user by ID
-app.delete('/users/:id', (req, res) => {
-    const userId = parseInt(req.params.id);
-    users = users.filter(user => user.id !== userId);
-    res.status(204).end();
-});
-
-const PORT = 5000;
-
-connectDB().then(() =>{
-    app.listen(PORT, () => {
-        console.warn(`Server is running at Port: ${PORT}`);
+    const { name, email, password, dob } = req.body;
+    db.run('INSERT INTO users (name, email, password, dob) VALUES (?, ?, ?, ?)', [name, email, password, dob], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({
+            id: this.lastID,
+            name,
+            email,
+            dob
+        });
     });
 });
+
+app.get('/users', (req, res) => {
+    db.all('SELECT * FROM users', [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+app.get('/users/:id', (req, res) => {
+    const { id } = req.params;
+    db.get('SELECT * FROM users WHERE id = ?', [id], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        res.json(row);
+    });
+});
+
+app.put('/users/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, email, password, dob } = req.body;
+    db.run('UPDATE users SET name = ?, email = ?, password = ?, dob = ? WHERE id = ?', [name, email, password, dob, id], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({
+            id: this.lastID,
+            name,
+            email,
+            dob
+        });
+    });
+});
+
+app.delete('/users/:id', (req, res) => {
+    const { id } = req.params;
+    db.run('DELETE FROM users WHERE id = ?', [id], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: 'User deleted', changes: this.changes });
+    });
+});
+
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
+
